@@ -1,0 +1,403 @@
+
+import React, { useRef, useState } from 'react';
+import {
+  ChevronLeft, Wand2, Settings,
+  Box, BrainCircuit, Clipboard, Layers, Activity, Check, AlertCircle, Loader2, X, RefreshCw
+} from 'lucide-react';
+import { Button } from '../Button';
+import { ProviderType, createLLMProvider } from '../../services/llm';
+import { SocialPlatformStrategy } from '../../services/strategies';
+
+interface HeaderProps {
+  onClose: () => void;
+  targetPlatform: SocialPlatformStrategy;
+  showSettings: boolean;
+  setShowSettings: (show: boolean) => void;
+  provider: ProviderType;
+  setProvider: (p: ProviderType) => void;
+  baseUrl: string;
+  setBaseUrl: (url: string) => void;
+  useThinking: boolean;
+  setUseThinking: (use: boolean) => void;
+  useBatch: boolean;
+  setUseBatch: (use: boolean) => void;
+  apiKey: string;
+  setApiKey: (key: string) => void;
+  textModel: string;
+  setTextModel: (model: string) => void;
+  imageModel: string;
+  setImageModel: (model: string) => void;
+}
+
+export const Header: React.FC<HeaderProps> = ({
+  onClose, targetPlatform, showSettings, setShowSettings,
+  provider, setProvider, baseUrl, setBaseUrl, useThinking, setUseThinking,
+  useBatch, setUseBatch, apiKey, setApiKey, textModel, setTextModel, imageModel, setImageModel
+}) => {
+  const apiKeyInputRef = useRef<HTMLInputElement>(null);
+
+  // Test connection states
+  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  const [testMessage, setTestMessage] = useState('');
+
+  // Model list states
+  const [modelsStatus, setModelsStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [modelsMessage, setModelsMessage] = useState('');
+  const [textModels, setTextModels] = useState<string[]>([]);
+  const [imageModels, setImageModels] = useState<string[]>([]);
+
+  const isKeyMissing = !apiKey || apiKey.trim() === '';
+
+  const handlePasteApiKey = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      setApiKey(text);
+    } catch (err) {
+      if (apiKeyInputRef.current) {
+        apiKeyInputRef.current.focus();
+        apiKeyInputRef.current.select();
+      }
+      alert("请按 Ctrl+V 粘贴您的 API Key。");
+    }
+  };
+
+  const handleTestConnection = async () => {
+    if (!apiKey) {
+      setTestStatus('error');
+      setTestMessage('请先输入 API Key');
+      return;
+    }
+
+    setTestStatus('testing');
+    setTestMessage('');
+
+    try {
+      // Create a temporary provider instance with current settings
+      const tempProvider = createLLMProvider(provider, apiKey, baseUrl);
+      await tempProvider.testConnection(textModel);
+      setTestStatus('success');
+      setTestMessage('连接成功');
+      
+      // Clear success message after 3 seconds
+      setTimeout(() => {
+        if (testStatus === 'success') { // Check if still success (user didn't click again)
+           setTestStatus('idle');
+           setTestMessage('');
+        }
+      }, 3000);
+      
+    } catch (error: any) {
+      console.error("Test connection error:", error);
+      setTestStatus('error');
+      setTestMessage(error.message || '连接失败，请检查 Base URL 或 Key');
+    }
+  };
+
+  const handleFetchModels = async () => {
+    if (!apiKey) {
+      setModelsStatus('error');
+      setModelsMessage('请先输入 API Key');
+      return;
+    }
+
+    setModelsStatus('loading');
+    setModelsMessage('');
+
+    try {
+      const tempProvider = createLLMProvider(provider, apiKey, baseUrl);
+      const models = await tempProvider.listModels();
+      setTextModels(models.text);
+      setImageModels(models.image);
+      setModelsStatus('success');
+      const total = models.text.length + models.image.length;
+      setModelsMessage(total ? `获取到 ${total} 个模型（文本 ${models.text.length} / 图像 ${models.image.length}）` : '未获取到模型');
+    } catch (error: any) {
+      console.error("Fetch models error:", error);
+      setModelsStatus('error');
+      setModelsMessage(error.message || '获取模型列表失败');
+    }
+  };
+
+  const StrategyIcon = targetPlatform.icon;
+  // Fallback map if needed
+  let badgeColorClass = "bg-slate-800 text-slate-300";
+  if (targetPlatform.id === 'xhs') badgeColorClass = "bg-pink-500/20 text-pink-400 border-pink-500/30";
+  if (targetPlatform.id === 'instagram') badgeColorClass = "bg-purple-500/20 text-purple-400 border-purple-500/30";
+
+  return (
+    <div className="h-14 lg:h-16 px-4 lg:px-6 border-b border-slate-800 flex items-center justify-between bg-slate-900 shrink-0 gap-2 shadow-md z-40 relative">
+      <div className="flex items-center gap-2 lg:gap-4 shrink-0">
+        <Button variant="ghost" size="sm" onClick={onClose} className="text-slate-400 hover:text-white pl-0 text-xs lg:text-sm">
+          <ChevronLeft className="w-4 h-4 lg:w-5 lg:h-5 mr-1" />
+          <span className="hidden sm:inline">返回视频</span>
+        </Button>
+
+        <div className="h-6 w-px bg-slate-800 mx-2 hidden sm:block"></div>
+
+        <h2 className="text-base lg:text-xl font-bold text-white flex items-center gap-2">
+          <Wand2 className="w-4 h-4 lg:w-5 lg:h-5 text-indigo-400" />
+          <span className="hidden sm:inline">AI 艺术工作室</span>
+          <span className={`text-xs px-2 py-0.5 rounded-full border hidden sm:inline-flex items-center gap-1 ${badgeColorClass}`}>
+             <StrategyIcon className="w-3 h-3" /> {targetPlatform.name} 模式
+          </span>
+        </h2>
+      </div>
+
+      <div className="flex items-center gap-2 lg:gap-3 flex-1 justify-end min-w-0">
+        
+        {/* API Key Warning Prompt */}
+        {isKeyMissing && !showSettings && (
+           <div className="flex items-center gap-1.5 animate-pulse mr-2">
+               <AlertCircle className="w-3.5 h-3.5 text-red-500" />
+               <span className="text-xs font-bold text-red-500 hidden sm:inline">
+                   请配置 API Key
+               </span>
+           </div>
+        )}
+
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          className={`w-8 h-8 transition-all duration-300 ${
+              isKeyMissing 
+                ? 'text-red-500 bg-red-500/10 hover:bg-red-500/20 ring-1 ring-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.2)]' 
+                : showSettings 
+                    ? 'text-indigo-400 bg-slate-800' 
+                    : 'text-slate-400 hover:text-white'
+          }`}
+          onClick={() => setShowSettings(!showSettings)}
+          title={isKeyMissing ? "点击设置 API Key" : "设置"}
+        >
+          <Settings className={`w-4 h-4 ${isKeyMissing ? 'animate-[spin_3s_linear_infinite]' : ''}`} />
+        </Button>
+
+        {showSettings && (
+          <div className="absolute top-16 right-4 lg:right-10 z-50 bg-slate-900 border border-slate-700 shadow-xl rounded-xl p-4 w-80 animate-in slide-in-from-top-2">
+            
+            {/* 1. Provider Selection */}
+            <div className="mb-4">
+              <label className="text-xs font-semibold text-slate-400 block mb-2 flex items-center gap-1">
+                <Box className="w-3 h-3" /> 服务提供商
+              </label>
+              <div className="grid grid-cols-2 gap-2 bg-slate-800 p-1 rounded-lg">
+                <button
+                  onClick={() => {
+                    setProvider('google');
+                    setBaseUrl("");
+                    setTextModel("");
+                    setImageModel("");
+                    setTextModels([]);
+                    setImageModels([]);
+                    setModelsStatus('idle');
+                    setModelsMessage('');
+                    setTestStatus('idle');
+                    setTestMessage('');
+                  }}
+                  className={`text-xs py-1.5 rounded-md transition-all ${provider === 'google' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
+                >
+                  Google Gemini
+                </button>
+                <button
+                  onClick={() => {
+                    setProvider('openai');
+                    setBaseUrl(""); // Reset to empty string
+                    setTextModel("");
+                    setImageModel("");
+                    setTextModels([]);
+                    setImageModels([]);
+                    setModelsStatus('idle');
+                    setModelsMessage('');
+                    setTestStatus('idle');
+                    setTestMessage('');
+                  }}
+                  className={`text-xs py-1.5 rounded-md transition-all ${provider === 'openai' ? 'bg-green-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
+                >
+                  OpenAI
+                </button>
+              </div>
+            </div>
+
+            {/* 2. Connection Settings */}
+            <div className="mb-4 bg-slate-950/50 p-3 rounded-lg border border-slate-800">
+                <div className="mb-3">
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="text-xs text-slate-400">API Base URL (可选)</label>
+                    {baseUrl && (
+                      <button onClick={() => setBaseUrl("")} className="text-[10px] text-slate-500 hover:text-white">
+                        <X className="w-3 h-3 inline" /> 清除
+                      </button>
+                    )}
+                  </div>
+                  <input
+                    type="text"
+                    value={baseUrl}
+                    onChange={(e) => {
+                        setBaseUrl(e.target.value);
+                        setTestStatus('idle'); // Reset test status on change
+                    }}
+                    placeholder={provider === 'google' ? "默认: https://generativelanguage.googleapis.com" : "默认: https://api.openai.com/v1"}
+                    className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-xs text-white focus:border-indigo-500 focus:outline-none placeholder-slate-600"
+                  />
+                  <p className="text-[10px] text-slate-600 mt-1">留空则使用官方默认地址</p>
+                </div>
+
+                <div className="mb-3">
+                  <label className="text-xs text-slate-400 block mb-1">API Key</label>
+                  <div className="flex items-center gap-2 bg-slate-800 p-1 rounded border border-slate-700 focus-within:ring-1 focus-within:ring-indigo-500 focus-within:border-indigo-500">
+                      <input
+                        ref={apiKeyInputRef}
+                        type="password"
+                        value={apiKey}
+                        onChange={(e) => {
+                            setApiKey(e.target.value);
+                            setTestStatus('idle');
+                        }}
+                        placeholder="sk-..."
+                        className="bg-transparent border-none text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-0 w-full px-2 py-1"
+                      />
+                       <button 
+                        onClick={handlePasteApiKey}
+                        className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-white transition-colors"
+                        title="粘贴 API Key"
+                       >
+                        <Clipboard className="w-3 h-3" />
+                       </button>
+                  </div>
+                </div>
+
+                {/* Model Selection */}
+                <div className="mb-3">
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="text-xs text-slate-400">模型 (Model)</label>
+                    <button
+                      onClick={handleFetchModels}
+                      disabled={modelsStatus === 'loading' || !apiKey}
+                      className="text-[10px] text-indigo-400 hover:text-indigo-300 flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {modelsStatus === 'loading' ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                      获取模型列表
+                    </button>
+                  </div>
+                  <select
+                    value={textModel}
+                    onChange={(e) => {
+                      setTextModel(e.target.value);
+                      setTestStatus('idle');
+                    }}
+                    className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-xs text-white focus:border-indigo-500 focus:outline-none mb-2"
+                  >
+                    <option value="">文本模型 (自动)</option>
+                    {textModel && !textModels.includes(textModel) && (
+                      <option value={textModel}>{textModel} (当前)</option>
+                    )}
+                    {textModels.map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={imageModel}
+                    onChange={(e) => {
+                      setImageModel(e.target.value);
+                      setTestStatus('idle');
+                    }}
+                    className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-xs text-white focus:border-indigo-500 focus:outline-none"
+                  >
+                    <option value="">图像模型 (自动)</option>
+                    {imageModel && !imageModels.includes(imageModel) && (
+                      <option value={imageModel}>{imageModel} (当前)</option>
+                    )}
+                    {imageModels.map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-slate-600 mt-1">留空则自动选择；点击上方按钮获取列表后，文本/图像下拉框分别显示对应类型的模型</p>
+                  {modelsMessage && (
+                    <p className={`text-[10px] mt-1 ${modelsStatus === 'error' ? 'text-red-400' : 'text-green-400'}`}>
+                      {modelsMessage}
+                    </p>
+                  )}
+                </div>
+
+                {/* Test Connection Button */}
+                <div className="mt-2">
+                   <Button 
+                      onClick={handleTestConnection} 
+                      size="sm" 
+                      disabled={testStatus === 'testing' || !apiKey}
+                      className={`w-full text-xs h-8 ${testStatus === 'success' ? 'bg-green-600 hover:bg-green-500' : testStatus === 'error' ? 'bg-red-600 hover:bg-red-500' : 'bg-slate-800 hover:bg-slate-700'}`}
+                   >
+                      {testStatus === 'testing' ? (
+                          <>
+                            <Loader2 className="w-3 h-3 mr-2 animate-spin" />
+                            测试中...
+                          </>
+                      ) : testStatus === 'success' ? (
+                          <>
+                            <Check className="w-3 h-3 mr-2" />
+                            连接成功
+                          </>
+                      ) : testStatus === 'error' ? (
+                          <>
+                            <AlertCircle className="w-3 h-3 mr-2" />
+                            测试失败
+                          </>
+                      ) : (
+                          <>
+                            <Activity className="w-3 h-3 mr-2" />
+                            测试连接
+                          </>
+                      )}
+                   </Button>
+                   {testMessage && (
+                       <p className={`text-[10px] mt-2 text-center ${testStatus === 'success' ? 'text-green-400' : 'text-red-400'}`}>
+                           {testMessage}
+                       </p>
+                   )}
+                </div>
+            </div>
+            
+            {/* 3. Advanced Settings */}
+            <div className="space-y-3 pt-2 border-t border-slate-800">
+                <div className="flex items-center justify-between">
+                <div className="flex flex-col">
+                    <span className="text-xs font-semibold text-slate-200 flex items-center gap-1">
+                    <BrainCircuit className="w-3 h-3 text-indigo-400" />
+                    深度思考 (Deep Thinking)
+                    </span>
+                    <span className="text-[10px] text-slate-500">
+                    {provider === 'google' ? 'Gemini 思考模式' : 'OpenAI Reasoning (o1)'}
+                    </span>
+                </div>
+                <div 
+                    className={`w-10 h-5 rounded-full cursor-pointer relative transition-colors ${useThinking ? 'bg-indigo-600' : 'bg-slate-700'}`}
+                    onClick={() => setUseThinking(!useThinking)}
+                >
+                    <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${useThinking ? 'translate-x-5' : 'translate-x-0'}`}></div>
+                </div>
+                </div>
+
+                <div className="flex items-center justify-between">
+                <div className="flex flex-col">
+                    <span className="text-xs font-semibold text-slate-200 flex items-center gap-1">
+                    <Layers className="w-3 h-3 text-indigo-400" />
+                    批量生成模式 (Batch)
+                    </span>
+                    <span className="text-[10px] text-slate-500 max-w-[180px] leading-tight mt-0.5">
+                    启用后使用 Batch API 节省成本 (较慢)。<br/>关闭则并发请求 (较快，消耗 Quota)。
+                    </span>
+                </div>
+                <div 
+                    className={`w-10 h-5 rounded-full cursor-pointer relative transition-colors shrink-0 ${useBatch ? 'bg-indigo-600' : 'bg-slate-700'}`}
+                    onClick={() => setUseBatch(!useBatch)}
+                >
+                    <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${useBatch ? 'translate-x-5' : 'translate-x-0'}`}></div>
+                </div>
+                </div>
+            </div>
+
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
